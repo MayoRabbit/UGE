@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) <year>  <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,39 +21,23 @@ main.cpp
 
 *******************************************************************************/
 
-#include <array>
-#include <functional>
+#include <iostream>
 #include <SDL2/SDL.h>
 #include "audio.hpp"
 #include "config.hpp"
-#include "console.hpp"
 #include "localization.hpp"
-#include "video.hpp"
 #include "main.hpp"
+#include "video.hpp"
 
+// Language file strings.
 namespace coreLib
 {
+	std::string initSuccessMsg;
+}
 
-// Error handling stuff. This is used in case something goes wrong.
-// Which I'm pretty sure is your fault, not mine.
-static struct
-{
-	int					code;
-	std::string_view	message;
-
-	/**
-	 * Set global error message.
-	 * This uses a string in the language file to parse the message.
-	 */
-
-	void set(const std::string_view &msg)
-	{
-		message = msg;
-	}
-
-} errorHandler;
-
-} // namespace coreLib
+/**
+ * Exported functions.
+ */
 
 #ifdef __cplusplus
 extern "C"
@@ -61,53 +45,59 @@ extern "C"
 #endif
 
 /**
- * Initializes core library and systems, which in turn initialize SDL and its
- * systems.
+ * Initializes core library and systems, which in turn initialize the SDL
+ * libraries and their systems.
  *
  * If anything goes wrong, sets an internal error code and message (similar to
- * how other libraries handle errors), and returns false. The calling program
- * should retrieve the code and message and handle it on its own accord.
+ * how other libraries handle errors), and returns the error code. The calling
+ * program should retrieve the code and message and handle it on its own accord.
  */
 
-uint8_t LIB_FUNC_CALL coreInit()
+const int LIB_FUNC_CALL coreInit()
 {
-	// Should stay 0.
-	uint8_t errCode = 0;
-
-	// Call initialization functions for each system. These simply set things up
-	// to get them ready. Program isn't started yet. We don't need the array
-	// after this so this part is block scoped.
-	{
-		const std::array<std::function<uint8_t ()>, 5> initFuncs =
-		{
-			coreLib::config::init,
-			coreLib::localization::init,
-			coreLib::console::init,
-			coreLib::audio::init,
-			coreLib::video::init
-		};
-
-		for(auto initFunc : initFuncs)
-		{
-			errCode = initFunc();
-			if(errCode)
-			{
-				return errCode;
-			}
-		}
-	}
-
-	// Initialize SDL. Fatal Error if this cannot be done.
+	// Attempt to initialize SDL. If we can't, that's bad.
 	if(SDL_Init(SDL_INIT_TIMER) < 0)
 	{
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "X", SDL_GetError(), NULL);
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot initialize SDL!", SDL_GetError(), NULL);
 		return 1;
 	}
 
-	printf("Done.\n");
+	// Initialize localization system. Fails if either the locale directory does
+	// not exist, or if it's empty. Program cannot run without at least the
+	// English (en_us) language file.
+	int errorCode = coreLib::localization::init();
+	if(errorCode)
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot initialize SDL Video System!", SDL_GetError(), NULL);
+		return errorCode;
+	}
 
-	// All good. Assuming.
-	return errCode;
+	// Initialize video system. Failure results in program exit.
+	// Can't run a game if you can't show anything, I think.
+	errorCode = coreLib::video::init();
+
+	if(errorCode)
+	{
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Cannot initialize SDL Video System!", SDL_GetError(), NULL);
+		return errorCode;
+	}
+
+	// Initialize audio system. This can fail, which may result in no audio
+	// output. The log file should indicate why.
+	errorCode = coreLib::audio::init();
+
+	if(errorCode)
+	{
+		coreLib::console::giveOutput(coreLib::localizaion::strings["audioInitFailMsg"]);
+	}
+
+	// Initialize audio system.
+	// Load main configuration file.
+	coreLib::configuration::init();
+
+	std::cout << coreLib::initSuccessMsg << std::endl;
+
+	return 0;
 }
 
 /**
@@ -116,18 +106,9 @@ uint8_t LIB_FUNC_CALL coreInit()
 
 void LIB_FUNC_CALL coreQuit()
 {
-	printf("Unloading core library...\n");
+	coreLib::video::quit();
 	SDL_Quit();
-	coreLib::config::quit();
-}
-
-/**
- * Gives the currently set error message to the calling program.
- */
-
-const char * LIB_FUNC_CALL getCoreError()
-{
-	return coreLib::errorHandler.message.data();
+	std::cout << "CORE LIBRARY UNLOADED!";
 }
 
 #ifdef __cplusplus

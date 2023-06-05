@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) 2022-2023  <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -17,59 +17,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ********************************************************************************
 
-config.hpp
+osd.hpp
+
+OS dependent stuff. For Windows sets the declspec type. For other operating
+systems, who knows? I'll cross that bridge once I'm ready to add support.
 
 *******************************************************************************/
 
 #pragma once
 
-#include <filesystem>
-#include <fstream>
+#ifdef _WIN64
+	#include <windows.h>
 
-namespace coreLib
-{
+	#ifdef BUILD_LIB
+		#define LIB_FUNC_CALL __declspec(dllexport)
+	#else
+		#define LIB_FUNC_CALL __declspec(dllimport)
+	#endif
+#endif
 
-namespace configuration
-{
-
-/**
- * Configuration file class.
- */
-
-class CFGFile
-{
-	friend const uint8_t	init();
-	friend void				quit();
-
-	std::filesystem::path	cfgFilePath;
-	std::fstream			cfgFile;
-
-	public:
-		CFGFile() = delete;
-		CFGFile(const std::string_view &filename);
-		~CFGFile() = default;
-
-		// Copy semantics deleted.
-		CFGFile(const CFGFile &) = delete;
-		CFGFile & operator = (const CFGFile &) = delete;
-
-		// Move semantics.
-		CFGFile(CFGFile &&f);
-		CFGFile & operator = (CFGFile &&f);
-
-		// Operator ! overload.
-		inline bool operator ! ()
-		{
-			return !std::filesystem::exists(cfgFilePath);
-		}
-
-		void load();
-		void save();
-};
-
-const uint8_t	init();
-void			quit();
-
-} // namespace configuration
-
-} // namespace coreLib

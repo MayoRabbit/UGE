@@ -23,48 +23,30 @@ localization.hpp
 
 #pragma once
 
-#include <concepts>
-#include <filesystem>
-#include <map>
-#include <regex>
-#include <string_view>
-#include <vector>
+#include <functional>
+#include <variant>
 
 namespace coreLib
 {
 
+/**
+ * LanguageFile class.
+ * Each instance of this class represents a language file in the "./locale"
+ * directory.
+ */
+
 namespace localization
 {
 
-// For the string parsing function for this class.
-//
-template<typename T>
-concept isNumeric = std::integral<T> || std::floating_point<T>;
-
 class LanguageFile
 {
+	// Localization system.
 	friend uint8_t	init();
 	friend void		quit();
 
-	// Directory for locale files. Should be "./locale".
-	static const std::filesystem::path				localePath;
-	static const std::filesystem::directory_entry	localeDir;
-
-	// Locale file path.
-	std::filesystem::path locFilePath;
-	std::fstream locFile;
-
-	// Information about a string.
-	typedef struct _stringInfo
-	{
-		std::vector<std::string>	parts;
-		size_t	length, adjLength;
-	}
-	stringInfo;
-
-	// List of messages currently loaded. This can be modified to add / remove
-	// strings depending on what the program needs at a certain point in time.
-	static std::map<std::string_view, stringInfo> strings;
+	// Locale file. These can (and should) only be read from.
+	std::filesystem::path	localeFilePath;
+	std::ifstream			localeFile;
 
 	public:
 		LanguageFile() = delete;
@@ -82,51 +64,16 @@ class LanguageFile
 		// Operator overloads.
 		inline bool operator ! ()
 		{
-			return !std::filesystem::exists(locFilePath);
+			return !std::filesystem::exists(localeFilePath);
 		}
 
-		/**
-		 * Parses a locale string. Similar to functions such as sprintf(),
-		 * except this takes a vector of values to use instead of being
-		 * variadic.
-		 */
-
-		template<typename T> requires isNumeric<T>
-		static std::string parseString(const std::string_view &id, const std::vector<T> &values)
-		{
-			// If there are no tokens, just return the string.
-			if(strings[id].parts.size() == 1)
-				return strings[id].parts[0];
-
-			std::string str;
-
-			// Length of new string.
-			auto length	= strings[id].adjLength;
-			auto value	= values.cbegin();
-
-			do
-			{
-				length += (*value).length();
-				value++;
-			}
-			while(value != values.end());
-
-			str.resize(length);
-
-			// Copies the conte
-			//do
-			//{
-
-			//}
-			//while();
-
-			return str;
-		}
+		bool load();
+		std::string parseString(const std::string_view &id, const std::vector<std::variant<std::string_view, int, float>> &values);
 };
 
 uint8_t	init();
 void	quit();
 
-} // namespace localization
+} // namespace loclaization
 
 } // namespace coreLib

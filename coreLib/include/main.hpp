@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) <year>  <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -19,30 +19,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 main.hpp
 
-Main dynamic library header. OS dependent stuff.
-
-TODO: Add Linux functionality once I learn it. Possible just separate this into
-individual OSD dependent files as more are supported. Maybe do nothing. I dunno.
+The file to include for a program using this library. Should include other
+headers to include all the exported functions necessary to use it. Should.
 
 *******************************************************************************/
 
 #pragma once
 
-//#include <cstdint>
-
-/**
- * OS-dependent defines.
- */
-
-#ifdef _WIN64
-	#include <windows.h>
-
-	#ifdef BUILD_LIB
-		#define LIB_FUNC_CALL __declspec(dllexport)
-	#else
-		#define LIB_FUNC_CALL __declspec(dllimport)
-	#endif
-#endif
+#include <cstdint>	// For uint8_t and such.
+#include "osd.hpp"
+#include "console.hpp"
+#include "cvar.hpp"
 
 /**
  * Exported functions.
@@ -53,9 +40,8 @@ extern "C"
 {
 #endif
 
-uint8_t			LIB_FUNC_CALL coreInit();
-void			LIB_FUNC_CALL coreQuit();
-const char *	LIB_FUNC_CALL getCoreError();
+const int	LIB_FUNC_CALL coreInit();
+void		LIB_FUNC_CALL coreQuit();
 
 #ifdef __cplusplus
 } // extern "C"

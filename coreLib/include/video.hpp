@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) <year>  <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -23,11 +23,59 @@ video.hpp
 
 #pragma once
 
+#include <string_view>
+
 namespace coreLib
 {
 
 namespace video
 {
+
+class VideoDriver
+{
+	const int			id;
+	std::string_view	name;
+
+	public:
+		VideoDriver() = delete;
+		VideoDriver(const int i);
+		~VideoDriver() = default;
+
+		// Copy and move semantics deleted. Drivers are determined when
+		// the program starts, and they are constant.
+		VideoDriver(const VideoDriver &)	= delete;
+		VideoDriver(VideoDriver &&)			= delete;
+		VideoDriver & operator = (const VideoDriver &)	= delete;
+		VideoDriver & operator = (VideoDriver &&)		= delete;
+
+		inline void describe() const
+		{
+			printf("%i: %s\n", id, name.data());
+		}
+};
+
+class VideoDisplay
+{
+	const int id;
+	std::string_view name;
+
+	public:
+		VideoDisplay() = delete;
+		VideoDisplay(const int i);
+		~VideoDisplay() = default;
+
+		// Copy and move semantics deleted. Displays are determined when
+		// the program starts, and they are constant.
+		VideoDisplay(const VideoDisplay &)	= delete;
+		VideoDisplay(VideoDisplay &&)		= delete;
+		VideoDisplay & operator = (const VideoDisplay &)	= delete;
+		VideoDisplay & operator = (VideoDisplay &&)			= delete;
+
+		inline void describe()
+		{
+			printf("%i: %s\n", id, name.data());
+		}
+};
 
 uint8_t	init();
 void	quit();

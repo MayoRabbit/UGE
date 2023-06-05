@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) 2022 <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -114,6 +114,12 @@ void NumericCVAR<bool>::operator = (const std::string_view &val)
 		numValue = true;
 	}
 }
+
+/*
+// List of system-related CVARs. Programs using this library may add to these
+// through the exported functions.
+std::map
+*/
 
 } // namespace console
 

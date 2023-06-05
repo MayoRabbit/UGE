@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) 2022 <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -24,9 +24,7 @@ audio.hpp
 #pragma once
 
 #include <string_view>
-#include <SDL2/SDL.h>
-#include <SDL_mixer.h>
-#include "describable.hpp"
+#include <SDL2/SDL_mixer.h>
 
 namespace coreLib
 {
@@ -38,9 +36,16 @@ namespace audio
  * AudioDevice class.
  */
 
-class AudioDevice : public Describable
+class AudioDevice
 {
+	// ID number the device currently opened.
+	static int openID;
+
+	// Device ID number.
 	const int id;
+
+	// Description of device displayed in the console.
+	std::string description;
 
 	public:
 		AudioDevice() = delete;
@@ -49,10 +54,10 @@ class AudioDevice : public Describable
 
 		// Copy and move semantics deleted. Devices are determined when
 		// the program starts, and they are constant.
-		AudioDevice(const AudioDevice &) = delete;
-		AudioDevice(AudioDevice &&) = delete;
-		AudioDevice & operator = (const AudioDevice &) = delete;
-		AudioDevice & operator = (AudioDevice &&) = delete;
+		AudioDevice(const AudioDevice &)	= delete;
+		AudioDevice(AudioDevice &&)			= delete;
+		AudioDevice & operator = (const AudioDevice &)	= delete;
+		AudioDevice & operator = (AudioDevice &&)		= delete;
 
 		void open() const;
 
@@ -60,15 +65,28 @@ class AudioDevice : public Describable
 		{
 			Mix_CloseAudio();
 		}
+
+		// Outputs device info to console.
+		inline void describe() const
+		{
+			printf("%i: %s\n", id, SDL_GetAudioDeviceName(id, 0));
+		}
 };
 
 /**
  * AudioDriver class.
  */
 
-class AudioDriver : public Describable
+class AudioDriver
 {
+	// ID of the audio driver currently in use.
+	static int openID;
+
+	// Driver ID number.
 	const int id;
+
+	// Description of driver displayed in the console.
+	std::string description;
 
 	public:
 		AudioDriver() = delete;
@@ -77,10 +95,16 @@ class AudioDriver : public Describable
 
 		// Copy and move semantics deleted. Drivers are determined when
 		// the program starts, and they are constant.
-		AudioDevice(const AudioDevice &) = delete;
-		AudioDevice(AudioDevice &&) = delete;
-		AudioDevice & operator = (const AudioDevice &) = delete;
-		AudioDevice & operator = (AudioDevice &&) = delete;
+		AudioDriver(const AudioDriver &)	= delete;
+		AudioDriver(AudioDriver &&)			= delete;
+		AudioDriver & operator = (const AudioDriver &)	= delete;
+		AudioDriver & operator = (AudioDriver &&)		= delete;
+
+		// Outputs driver info to console.
+		inline void describe() const
+		{
+			printf("%i: %s\n", id, SDL_GetAudioDriver(id));
+		}
 };
 
 /**
@@ -96,62 +120,61 @@ class AudioChannel
 };
 
 /**
- * AudioFile class. Abstract.
- * Basic audio file stuff.
+ * AudioStream class. Abstract.
+ * Basic audio features.
  */
 
-class AudioFile
+class AudioStream
 {
-	Mix_Chunk		chunk;
-	SDL_AudioFormat	format;
-
 	public:
-		AudioFile() = delete;
-		AudioFile(const std::string_view &filename);
-		virtual ~AudioFile();
+		AudioStream() = delete;
+		AudioStream(const std::string_view &filename);
+		AudioStream(const void *data);
+		virtual ~AudioStream();
 
 		virtual bool play() = 0;
 		virtual bool stop() = 0;
 };
 
 /**
- * MusicFile class.
- * This version of the library only supports WAV, FLAC, and OGG formats.
- * If you fork this, feel free to add support for others.
+ * MusicStream class.
+ * These support looping because it's what music is supposed to do.
  */
 
-class MusicFile : public AudioFile
+class MusicStream : public AudioStream
 {
-	// Format.
-	typedef enum _format
-	{
-		AFF_FLAC,
-		AFF_OGG,
-		AFF_WAV
-	} format;
+	Mix_MusicType type;
+	double loopStart = 0.0;
 
 	public:
-		MusicFile() = delete;
-		MusicFile(const std::string_view &filename);
-		~MusicFile();
+		MusicStream() = delete;
+		MusicStream(const std::string_view &filename);
+		MusicStream(const void *data);
+		~MusicStream();
 
 	bool play();
 	bool stop();
 	bool pause();
+
+	inline void loop()
+	{
+		Mix_SetMusicPosition(loopStart);
+	}
 };
 
 /**
- * SoundFile class.
- * All sound files are in WAV format. For now. Maybe.
+ * SoundStream class.
+ * For sound effects that play, then stop. Then possibly repeat.
  */
 
-class SoundFile : public AudioFile
+class SoundStream : public AudioStream
 {
+	Mix_Chunk chunk;
 
 	public:
-		SoundFile() = delete;
-		SoundFile(const std::string_view &filename);
-		~SoundFile();
+		SoundStream() = delete;
+		SoundStream(const std::string_view &filename);
+		~SoundStream();
 
 		bool play();
 		bool stop();
@@ -163,3 +186,21 @@ void	quit();
 } // namespace audio
 
 } // namespace audio
+
+/**
+ * Exported functions.
+ */
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+const bool	LIB_FUNC_CALL coreAudioCreateSound(const char *name, const void *data);
+const bool	LIB_FUNC_CALL coreAudioCreateMusic(const char *name, const void *data);
+void		LIB_FUNC_CALL coreAduioDeleteSound(const char *name);
+void		LIB_FUNC_CALL coreAudioDeleteMusic(const char *name);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

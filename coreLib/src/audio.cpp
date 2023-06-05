@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) 2022 <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -19,16 +19,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 audio.cpp
 
-Handles audio with SDL and SDL mixer.
+Audio system. Uses SDL and SDL mixer. Supported formats include WAV, FLAC, and
+OGG. Other formats might be supported later. Don't quote me on it, though.
 
 *******************************************************************************/
 
-#include <string>
 #include <vector>
-
+#include <SDL2/SDL.h>
 #include "audio.hpp"
 #include "console.hpp"
-#include "cvar.hpp"
 
 namespace coreLib
 {
@@ -36,21 +35,26 @@ namespace coreLib
 namespace audio
 {
 
+// Devices and drivers.
 static std::vector<const AudioDevice *> audioDevices;
 static std::vector<const AudioDriver *> audioDrivers;
+
+// Sound and music streams.
+static std::map<std::string, SoundStream *> soundStreams;
+static std::map<std::string, MusicStream *> musicStreams;
 
 /**
  * CVARs.
  */
 
-console::IntCVAR
-	device, driver, // Filled in after SDL is loaded.
-	numChannels(2, 1, 8, "audioChannelsCvarDesc"),
-	sampleRate(48000, 24000, 48000, "audioSampleRateCvarDesc");
+static console::IntCVAR
+	audioDevice, audioDriver, // Filled in after SDL is loaded.
+	numChannels	(2, 1, 8, "audioChannelsCvarDesc"),
+	sampleRate	(48000, 24000, 48000, "audioSampleRateCvarDesc");
 
-console::FloatCVAR
-	mainVolume(0.75, 0.0, 1.0, "audioMainVolumeCvarDesc"),
-	musicVolume(0.75, 0.0, 1.0, "audioMusicVolumeCvarDesc"),
+static console::FloatCVAR
+	mainVolume	(0.75, 0.0, 1.0, "audioMainVolumeCvarDesc"),
+	musicVolume	(0.75, 0.0, 1.0, "audioMusicVolumeCvarDesc"),
 	effectVolume(0.75, 0.0, 1.0, "audioEffectVolumeCvarDesc");
 
 /**
@@ -59,49 +63,64 @@ console::FloatCVAR
 
 static void listDevices()
 {
+	printf("SDL Audio Devices Detected:\n");
+
 	for(const auto &ad : audioDevices)
 		ad->describe();
 }
 
 static void listDrivers()
 {
-	for(const auto &ad : audioDevices)
+	printf("SDL Audio Drivers Detected:\n");
+
+	for(const auto &ad : audioDrivers)
 		ad->describe();
 }
 
-/**
- * Restarts audio system.
- */
-
 static void restart()
 {
-	audioDevices[device]->close();
 
-	// Close the currently used device.
 }
 
 /**
  * AudioDevice class.
  */
 
-// Constructor. Attempts to load an SDL audio device.
+// Constructor. Attempts to collect information about an SDL audio device.
+// This does not open the device, as only one device can be open at any time,
+// that must be done with the open() function.
 AudioDevice::AudioDevice(const int i) :
 	id(i)
-{}
+{
+
+}
 
 // Destructor. Frees the device.
 AudioDevice::~AudioDevice()
-{}
+{
+	Mix_CloseAudio();
+}
 
+// Attempts to open the device using the settings stored in the relevant
+// CVARs. If it can't allow conversion, and set the CVARs to the values
+// that were chosen. Log these events so the user knows.
 void AudioDevice::open() const
 {
+	int allocatedChannels = Mix_AllocateChannels(numChannels);
+	if(allocatedChannels != numChannels)
+	{
+
+	}
+
+	// Get the
 	Mix_OpenAudioDevice
-	(sampleRate,
+	(
+		sampleRate,
 		AUDIO_S16,
 		2,
 		2048,
 		SDL_GetAudioDeviceName(id, 0),
-		SDL_AUDIO_ALLOW_FORMAT_CHANGE|SDL_AUDIO_ALLOW_SAMPLES_CHANGE
+		SDL_AUDIO_ALLOW_FORMAT_CHANGE | SDL_AUDIO_ALLOW_SAMPLES_CHANGE
 	);
 }
 
@@ -117,7 +136,7 @@ AudioDriver::AudioDriver(const int i) :
 
 AudioDriver::~AudioDriver()
 {
-
+	if(id == currentID);
 }
 
 /**
@@ -127,7 +146,10 @@ AudioDriver::~AudioDriver()
 uint8_t init()
 {
 	// SDL.
-	SDL_InitSubSystem(SDL_INIT_AUDIO);
+	if(SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
+	{
+
+	}
 
 	// SDL mixer.
 	int flags = Mix_Init(MIX_INIT_FLAC | MIX_INIT_OGG);
@@ -164,23 +186,28 @@ uint8_t init()
 		audioDrivers[i] = new const AudioDriver(i);
 
 	// CVARs.
-	device = { 0, 0, numDevices - 1, "audioDeviceCvarDesc" };
-	driver = { 0, 0, numDrivers - 1, "audioDriverCvarDesc" };
+	audioDevice = { 0, 0, numDevices - 1, "audioDeviceCvarDesc" };
+	audioDriver = { 0, 0, numDrivers - 1, "audioDriverCvarDesc" };
 
 	console::systemCVARs.insert
-	({
-		{ "aud_device",			&device },
-		{ "aud_driver",			&driver },
-		{ "aud_effectvolume",	&effectVolume },
-		{ "aud_mainvolume",		&mainVolume },
-		{ "aud_musicvolume",	&musicVolume }
-	});
+	(
+		{
+			{ "aud_device",			&audioDevice },
+			{ "aud_driver",			&audioDriver },
+			{ "aud_effectvolume",	&effectVolume },
+			{ "aud_mainvolume",		&mainVolume },
+			{ "aud_musicvolume",	&musicVolume }
+		}
+	);
 
 	console::CCMDs.insert
-	({
-		{ "aud_listdevices", &listDevices },
-		{ "aud_listdrivers", &listDrivers }
-	});
+	(
+		{
+			{ "aud_listdevices",	listDevices },
+			{ "aud_listdrivers",	listDrivers },
+			{ "aud_restart",		restart }
+		}
+	);
 
 	// Go ahead and list the found devices and drivers.
 	listDevices();
@@ -190,18 +217,46 @@ uint8_t init()
 }
 
 /**
- * Shuts down audio system(s).
+ * Shuts down audio system.
  */
 
 void quit()
 {
-	for(auto &ad : audioDevices)
+	// Delete devices and drivers.
+	for(auto ad : audioDevices)
 		delete ad;
 
-	for(auto &ad : audioDrivers)
+	for(auto ad : audioDrivers)
 		delete ad;
 }
 
 } // namespace audio
 
 } // namespace coreLib
+
+/**
+ * Exported functions.
+ */
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+const bool	LIB_FUNC_CALL coreAudioCreateSound(const char *name, const void *data)
+
+
+const bool	LIB_FUNC_CALL coreAudioCreateMusic(const char *name, const void *data)
+
+
+void		LIB_FUNC_CALL coreAduioDeleteSound(const char *name)
+
+
+void		LIB_FUNC_CALL coreAudioDeleteMusic(const char *name)
+
+
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
+

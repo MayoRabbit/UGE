@@ -17,46 +17,25 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ********************************************************************************
 
-console.hpp
+render.hpp
 
 *******************************************************************************/
 
 #pragma once
 
-#include <functional>
-#include <map>
-#include <string>
-#include <string_view>
-#include "cvar.hpp"
-#include "osd.hpp"
+#include <SDL2/SDL.h>
 
 namespace coreLib
 {
 
-namespace console
+namespace renderer
 {
 
-// System CVARs are settings supplied by this library. Custom CVARs are set by
-// the user, such as aliases, batch commands, etc.
-extern std::map<std::string_view, CVAR *>			systemCVARs;
-extern std::map<std::string_view, std::string_view>	customCVARs;
-
-// Console Commands. Commands you can input into the console and execute.
-// If the program will let you.
-extern std::map<std::string_view, std::function<void ()>> CCMDs;
-
-// Simple typedef to identify which functions are console commands. Might
-// improve readability. Might not. Might figure it out later. Might not.
-typedef void CCMD;
 
 uint8_t	init();
 void	quit();
 
-// For other portions of this library to use.
-void giveOutput(const std::string_view &str);
-void giveOutput(const std::string &str);
-
-} // namespace console
+} // namespace renderer
 
 } // namespace coreLib
 
@@ -69,9 +48,19 @@ extern "C"
 {
 #endif
 
-void LIB_FUNC_CALL coerConsoleMain();
-void LIB_FUNC_CALL coreConsoleToggle();
-void LIB_FUNC_CALL coreConsoleOutput(const std::string &str);
+// Object creation.
+void LIB_FUNC_CALL coreCreateBuffer(const void *data);
+void LIB_FUNC_CALL coreCreateFramebuffer(const void *data);
+void LIB_FUNC_CALL coreCreateProgram(const void *data);
+void LIB_FUNC_CALL coreCreateShader(const void *data);
+void LIB_FUNC_CALL coreCreateTexture(const void *data);
+
+// Object deletion.
+void LIB_FUNC_CALL coreDeleteBuffer(const void *data);
+void LIB_FUNC_CALL coreDeleteFramebuffer(const void *data);
+void LIB_FUNC_CALL coreDeleteProgram(const void *data);
+void LIB_FUNC_CALL coreDeleteShader(const void *data);
+void LIB_FUNC_CALL coreDeleteTexture(const void *data);
 
 #ifdef __cplusplus
 } // extern "C"

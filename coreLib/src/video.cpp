@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) <year>  <name of author>
+Copyright (C) 2022-2023  <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -19,16 +19,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 video.cpp
 
-
+Handles the video system supplied by SDL.
 
 *******************************************************************************/
 
-#include <array>
-#include <string_view>
 #include <SDL2/SDL.h>
-#include <vector>
 #include "console.hpp"
-#include "cvar.hpp"
+#include "renderer.hpp"
 #include "video.hpp"
 
 namespace coreLib
@@ -37,26 +34,11 @@ namespace coreLib
 namespace video
 {
 
-// Filenames for the GL / Vulkan wrapper libs, one of which will be loaded
-// during video initialization.
-// OS dependent, so a bit o' preprocessor here.
-static constexpr std::array<std::string_view, 2> graphicsLibs =
-{
-#ifdef _WIN64
-	"gl.dll",
-	"vulkan.dll"
-#else
-	#error "__FILE__ __LINE__: Invalid OS option for graphics libraries."
-#endif
-};
+static std::vector<VideoDriver *>	videoDrivers;
+static std::vector<VideoDisplay *>	videoDisplays;
 
 // SDL stuff.
-static SDL_Window	*sdlWindow;
-static void			*sdlLibHandle;
-
-// Functions in whichever lib file is being used.
-static bool (*libInitFunc)(SDL_Window *);
-static void (*libQuitFunc)();
+static SDL_Window *sdlWindow;
 
 // Stores whether the user's screen saver was enabled when the program was
 // loaded. If it was, will re-enable it when program ends.
@@ -64,18 +46,58 @@ static bool screenSaverWasEnabled;
 
 // These are filled in after SDL acquires video information.
 console::IntCVAR
-	customWidth,	// Used if the value of `mode` is -1.
-	customHeight,	// Same.
-	display,		// Display monitor.
-	driver;			// Display driver.
+	display,	// Display monitor.
+	driver;		// Display driver.
 
-// One display mode per display.
-std::vector<console::IntCVAR> modes;
+// Each display gets a set of these, as not all displays may be able to use the
+// same custom width and height values.
+std::vector<console::IntCVAR>
+	customHeight,
+	customWidth,
+	modes;
 
-// These don't need to be.
-console::BoolCVAR
-	fullscreen(1, "videoFullscreenDesc"),
-	renderer(0, "videoRendererDesc"); // 0 = OpenGL, 1 = Vulkan.
+// This doesn't need to be.
+console::BoolCVAR fullscreen(1, "videoFullscreenDesc");
+
+/**
+ * VideoDriver class.
+ */
+
+// Constructor.
+VideoDriver::VideoDriver(const int i) :
+	id	(i),
+	name(SDL_GetVideoDriver(i))
+{}
+
+/**
+ * VideoDisplay class.
+ */
+
+// Constructor.
+VideoDisplay::VideoDisplay(const int i) :
+	id	(i),
+	name(SDL_GetDisplayName(i))
+{}
+
+/**
+ * Lists the available video drivers.
+ */
+
+void listDrivers()
+{
+	for(const auto vd : videoDrivers)
+		vd->describe();
+}
+
+/**
+ * Lists the available video displays.
+ */
+
+void listDisplays()
+{
+	for(const auto vd : videoDisplays)
+		vd->describe();
+}
 
 /**
  * Restarts video system.
@@ -84,69 +106,113 @@ console::BoolCVAR
 
 void restart()
 {
-	// Free graphics library resources and unload the dynamic lib.
-	(*libQuitFunc)();
-	SDL_UnloadObject(sdlLibHandle);
-
-	// Load currently selected library.
-	sdlLibHandle = SDL_LoadObject(graphicsLibs[renderer].data());
-	if(!sdlLibHandle)
-		printf("%s\n", SDL_GetError());
-
-	(*libInitFunc)(sdlWindow);
+	sdlWindow = SDL_CreateWindow("BOO!", 10, 10, 640, 480, SDL_WINDOW_OPENGL);
 }
 
 /**
- * Initializes video system.
+ * Initializes video system. If anything, and I mean anything, goes wrong, it's
+ * a fatal error, and program may not continue.
  */
 
 uint8_t init()
 {
-	int errorCode = 0;
-
-	// SDL.
+	// SDL video system.
 	if(SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
-	{
+		return 2;
 
-	}
+	// Get video drivers. If this fails, we cannot proceed.
+	int numDrivers = SDL_GetNumVideoDrivers();
+
+	if(numDrivers < 0)
+		return 3;
+
+	// Get video displays. Again, failure means no continue.
+	int numDisplays = SDL_GetNumVideoDisplays();
+
+	if(numDisplays < 0)
+		return 4;
 
 	screenSaverWasEnabled = SDL_IsScreenSaverEnabled();
 	if(screenSaverWasEnabled)
 		SDL_DisableScreenSaver();
 
-	// Initialize CVARs.
-	int numDisplays = SDL_GetNumVideoDisplays();
-	display = { 0, 0, (numDisplays - 1), "cvarVidDisplayDesc" };
 
-	int numDrivers = SDL_GetNumVideoDrivers();
-	driver = { 0 , 0, (numDrivers - 1), "cvarVidDriverDesc" };
+	videoDrivers.resize(numDrivers);
 
-	// Custom width and height can be set to any value that fits the integer
-	// type. If the value can't be used, the library should revert back to
-	// the last valid settings.
-	customWidth		= { 640, INT_MIN, INT_MAX, "cvarVidCustomwWidthDesc" };
-	customHeight	= { 480, INT_MIN, INT_MAX, "cvarVidCustomHeightDesc" };
+	for(int i = 0; i < numDrivers; i++)
+		videoDrivers[i] = new VideoDriver(i);
+
+	// Get video displays.
+
+	customHeight.resize(numDisplays);
+	customWidth.resize(numDisplays);
+	videoDisplays.resize(numDisplays);
+
+	for(int i = 0; i < numDisplays; i++)
+		videoDisplays[i] = new VideoDisplay(i);
+
+	// CVARs.
+	driver	= { 0, 0, (numDrivers - 1), "cvarVidDriverDesc" };
+	display	= { 0, 0, (numDisplays - 1), "cvarVidDisplayDesc" };
+
+	// Highest supported width and height values for each display as determined
+	// by SDL. These are used for the "max" values for the custom width and
+	// height settings for each display.
+	int
+		maxHeight	= 0,
+		maxWidth	= 0;
+
+	SDL_DisplayMode mode;
 
 	modes.resize(numDisplays);
 	for(int i = 0; i < numDisplays; i++)
 	{
 		int numModes = SDL_GetNumDisplayModes(i);
 		modes[i] = { 0, 0, (numModes - 1), "cvarVidModeDesc" };
+
+		for(int j = 0; j < SDL_GetNumDisplayModes(i); j++)
+		{
+			SDL_GetDisplayMode(i, j, &mode);
+			if(mode.h > maxHeight)
+				maxHeight = mode.h;
+
+			if(mode.w > maxWidth)
+				maxWidth = mode.w;
+		}
+
+		customHeight[i]	= { maxHeight, 480, maxHeight, "cvarVidCustomHeightDesc" };
+		customWidth[i]	= { maxWidth, 640, maxWidth, "cvarVidCustomwWidthDesc" };
 	}
 
-	// CVARs.
+	// Console variables.
 	console::systemCVARs.insert
-	({
-		{ "vid_customwidth",	&customWidth },
-		{ "vid_customheight",	&customHeight },
-		{ "vid_display",		&display },
-		{ "vid_driver",			&driver },
-		{ "vid_mode",			&modes[0] },
-		{ "vid_fullscreen", 	&fullscreen },
-		{ "vid_renderer",		&renderer }
-	});
+	(
+		{
+			{ "vid_customwidth",	&customWidth[0] },
+			{ "vid_customheight",	&customHeight[0] },
+			{ "vid_display",		&display },
+			{ "vid_driver",			&driver },
+			{ "vid_mode",			&modes[0] },
+			{ "vid_fullscreen", 	&fullscreen }
+		}
+	);
 
-	return errorCode;
+	// Console commands.
+	console::CCMDs.insert
+	(
+		{
+			{ "vid_listDisplays",	listDisplays },
+			{ "vid_listDrivers",	listDrivers },
+			{ "vid_restart",		restart }
+		}
+	);
+
+	listDrivers();
+	listDisplays();
+
+	restart();
+
+	return 0;
 }
 
 /**
@@ -155,7 +221,7 @@ uint8_t init()
 
 void quit()
 {
-	(*libQuitFunc)();
+	//libQuitFunc();
 
 	// Re-enable screen saver if it was disabled by this library.
 	if(screenSaverWasEnabled)

@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) 2022 <name of author>
+Copyright (C) 2022-2023 <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -25,8 +25,6 @@ perform available actions.
 
 *******************************************************************************/
 
-#include <bitset>
-#include <cstdlib>
 #include <list>
 #include <string>
 #include <variant>
@@ -40,6 +38,10 @@ namespace coreLib
 namespace console
 {
 
+// Whether console is open. If it is all inputs will be sent to it and it'll be
+// drawn on screen.
+static bool isOpen = false;
+
 // System CVARs. The various systems will add to this map as they initialize.
 std::map<std::string_view, CVAR *> systemCVARs;
 
@@ -47,16 +49,33 @@ std::map<std::string_view, CVAR *> systemCVARs;
 std::map<std::string_view, std::string_view> customCVARs;
 
 // Console commands. The various systems will add to this map as they initialize.
-std::map<std::string_view, void(*)()> CCMDs;
+std::map<std::string_view, std::function<void ()>> CCMDs;
+
+// Number of lines of text displayed in the console. This is changed when either
+// the console's vertical height or text size is changed (changing the
+// horizontal size has no effect on this), and is used to help with scrolling
+// the output window.
+static uint8_t visibleLines = 0;
 
 // Input string. User types into this when typing into the console.
-// Max length of this string is 257 characters; 256 is the string itself, the
-// 257th is always a null character.
-std::string input(257, '\0');
+// The max length of the input itself is 256 characters, but as this supports
+// UTF-8, where each character can be up to 4 bytes, the actual length of the
+// string is 1024 bytes, with the last byte always being a null character.
+static std::string input(1025, '\0');
 
-// Output strings that make up the log displayed in the console.
-//
-std::list<std::variant<std::string_view, std::string>> outputs;
+// Iterator for the input string. This moves as the user types / deletes
+// characters from the string.
+static std::string::iterator inputPos;
+
+// Outputs to the console. Each output can be either a string
+typedef struct _output
+{
+	std::variant<std::string, std::string_view> text;
+	uint8_t numLines;
+}
+output;
+
+std::list<output> outputs;
 
 // CVARs.
 static FloatCVAR
@@ -73,15 +92,21 @@ static FloatCVAR
 static uint16_t pixWidth, pixHeight;
 static uint16_t pixTextSize;
 
+// Rendering context objects used to draw the console when it's open. These
+// always exist, whether they're used depends on the console being open.
+const std::string_view
+	vertexShaderName	= "console.vs",
+	geometryShaderName	= "console.gs",
+	fragmentShaderName	= "console.fs";
+
 /**
  * Console commands "con_width" and "con_height". Changes the width and height
- * of the console. Takes in a float between 0.0 and 1.0 that's a percentage
- * of the screen's width and height.
+ * of the console. Takes in a float between 0.0 and 1.0 that's a percentage of
+ * the screen's width and height.
  */
 
 bool setWidth(const float val)
 {
-	//shaders["console"]->attibute["width"] = val;
 	// Get screen width.
 	IntCVAR *display = static_cast<IntCVAR *>(systemCVARs["vid_display"]);
 	SDL_DisplayMode mode;
@@ -124,37 +149,34 @@ bool setTextSize(const float val)
 
 void giveOutput(const std::string_view &str)
 {
-	outputs.insert(outputs.end(), str);
+	outputs.insert(outputs.end(), { str, 1 });
 	printf("%s\n", str.data());
 }
 
 void giveOutput(const std::string &str)
 {
-	outputs.insert(outputs.end(), str);
+	outputs.insert(outputs.end(), { str, 1});
 	printf("%s\n", str.c_str());
 }
 
 /**
- * Scrolls the output window up / down. Called by the console's input handling
- * function if the appropriate inputs are given:
- * - Mousewheel up / down. Scrolls by a number of lines between 2 and
- * - Arrow key up / down. Scrolls one line at a time. Hold the key to scroll
- *   faster.
- * - Home / End / Page Up / Page Down. Scrolls by the number of lines displayed
- *   in the window, or until either end is reached.
- *
+ * Scrolls the output window up / down. The number of lines to scroll can be
+ * either positive (scroll down), or negative (scroll up). If either the Home or
+ * End keys are pressed, the value is the max (set by C++ defines), which
+ * indicates just moving to the very top / bottom of the output list.
  */
 
-static void scrollOutput(const std::bitset<5> &flags)
+static void scrollOutput(const int8_t numLines)
 {
-	static uint16_t startLine = 0;
+	static uint8_t startLine = 0;
 
-	if(flags[0])
-	{
-	}
-	else
-	{
-	}
+	if(numLines == INT8_MIN)
+		startLine = 0;
+	else if(numLines == INT8_MAX)
+		startLine = numLines - visibleLines;
+
+	// Re-renders text output starting at the specified output and line.
+
 }
 
 /**
@@ -165,8 +187,8 @@ static void scrollOutput(const std::bitset<5> &flags)
 void draw()
 {
 	/*
-	shaders["console"]->use();
-
+	renderer::programs["console"]->use();
+	renderer::programs["console"]->execute();
 	*/
 }
 
@@ -177,24 +199,27 @@ void draw()
 uint8_t init()
 {
 	systemCVARs.insert
-	({
-		{ "con_alpha",		&alpha },
-		{ "con_bdralpha",	&borderAlpha },
-		{ "con_xpos",		&xPos },
-		{ "con_ypos",		&yPos },
-		{ "con_width",		&width },
-		{ "con_height",		&height },
-		{ "con_textscale",	&textScale }
-	});
+	(
+		{
+			{ "con_alpha",		&alpha },
+			{ "con_bdralpha",	&borderAlpha },
+			{ "con_xpos",		&xPos },
+			{ "con_ypos",		&yPos },
+			{ "con_width",		&width },
+			{ "con_height",		&height },
+			{ "con_textscale",	&textScale }
+		}
+	);
 
 	return 0;
 }
 
 /**
- * Console input handler.
+ * Submits the console's input string for processing.
+ * This first checks if the input string matches an existing
  */
 
-void addInput()
+static void submitInput()
 {
 
 }
@@ -211,3 +236,96 @@ void quit()
 } // namespace console
 
 } // namespace coreLib
+
+/**
+ * Exported functions.
+ */
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+/**
+ * Console's main function. Should be called by the program using this library
+ * when the console is open. Not doing so might cause problems.
+ */
+
+void LIB_FUNC_CALL coreConsoleMain()
+{
+	SDL_Event event;
+	SDL_PollEvent(&event);
+
+	if(event.type == SDL_KEYDOWN)
+	{
+		switch(event.key.keysym.scancode)
+		{
+			// Special case keys. These scroll the output window.
+			case SDL_SCANCODE_UP:
+				coreLib::console::scrollOutput(-1);
+				break;
+			case SDL_SCANCODE_DOWN:
+				coreLib::console::scrollOutput(1);
+				break;
+			case SDL_SCANCODE_PAGEUP:
+				coreLib::console::scrollOutput(-coreLib::console::visibleLines);
+				break;
+			case SDL_SCANCODE_PAGEDOWN:
+				coreLib::console::scrollOutput(coreLib::console::visibleLines);
+				break;
+			case SDL_SCANCODE_HOME:
+				coreLib::console::scrollOutput(INT8_MIN);
+				break;
+			case SDL_SCANCODE_END:
+				coreLib::console::scrollOutput(INT8_MAX);
+				break;
+
+			// Return key submits the output.
+			case SDL_SCANCODE_RETURN:
+				coreLib::console::submitInput();
+				break;
+
+			// Default behavior is to attempt to add the input to the input string.
+			default:
+				{
+					//*inputPos = *;
+					return;
+				}
+		}
+	}
+	else if(event.type == SDL_MOUSEWHEEL)
+	{
+		if(event.wheel.y > 0)
+			coreLib::console::scrollOutput(-event.wheel.y);
+		else if(event.wheel.y < 0)
+			coreLib::console::scrollOutput(event.wheel.y);
+	}
+}
+
+/**
+ * Allows program to send output messages to the console.
+ */
+
+void LIB_FUNC_CALL coreConsoleOutput(const std::string &str)
+{
+
+}
+
+/**
+ * Toggles console on / off. Adds / removes console's shader program from the
+ * list of active programs. The program using this library should decide what
+ * key or combination of keys will do this.
+ */
+
+void LIB_FUNC_CALL coreConsoleToggle()
+{
+	coreLib::console::isOpen = !coreLib::console::isOpen;
+
+	//coreLib::console::isOpen
+	//	? coreLib::renderer::programs["console"].enable;
+	//	: coreLib::renderer::programs["console"].disable
+}
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

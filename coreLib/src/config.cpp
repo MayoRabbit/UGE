@@ -1,7 +1,7 @@
 /*******************************************************************************
 
 <one line to give the program's name and a brief idea of what it does.>
-Copyright (C) <year>  <name of author>
+Copyright (C) 2022-2023  <name of author>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -27,25 +27,23 @@ program's end. During runtime, files may be created and read by using the
 
 *******************************************************************************/
 
-#include <SDL2/SDL.h>
-#include "console.hpp"
+#include <regex>
 #include "config.hpp"
+#include "console.hpp"
 
 namespace coreLib
 {
 
-namespace config
+namespace configuration
 {
 
-// Config directory.
-const std::filesystem::path				CFGFile::cfgDirPath("./config");
-const std::filesystem::directory_entry	CFGFile::cfgDirectory(CFGFile::cfgDirPath);
+// Directory config files are stored in. Default is "./config".
+static const std::filesystem::path				cfgDirPath("./config");
+static const std::filesystem::directory_entry	cfgDirectory;
 
-// Default configuration file.
-static CFGFile defaultCFGFile("config.cfg");
-
-// CVAR string format.
-static const std::regex cvarFormat("^\\s*([a-zA-Z_]+)\\s+([\\d.]+)\\s*&", std::regex_constants::icase);
+// Default configuration file. This is loaded on program start and saved on
+// program close.
+static const CFGFile defaultCFGFile("config.cfg");
 
 /**
  * Configuration File.
@@ -57,10 +55,24 @@ CFGFile::CFGFile(const std::string_view &filename)
 	cfgFilePath.assign(cfgDirPath.string() + "/" + filename.data());
 }
 
-// Destructor.
+// Move constructor.
+CFGFile::CFGFile(CFGFile &&f)
+{
+	cfgFilePath = std::move(f.cfgFilePath);
+	cfgFile		= std::move(f.cfgFile);
+}
+
+// Move assignment.
+CFGFile & CFGFile::operator = (CFGFile &&f)
+{
+	cfgFilePath = std::move(f.cfgFilePath);
+	cfgFile		= std::move(f.cfgFile);
+	return *this;
+}
 
 /**
- * Loads configuration file.
+ * Attempts to load a configuration file. If the file cannot be loaded, displays
+ * an error, and simply stops.
  */
 
 void CFGFile::load()
@@ -68,14 +80,35 @@ void CFGFile::load()
 	cfgFile.open(cfgFilePath.string(), std::ios::in);
 	if(!cfgFile.is_open())
 	{
-		return;
+
 	}
+
+	// Each line in the configuration file will be one of these.
+	enum
+	{
+		LT_INVALID,	// Neither comment or CVAR, ignored and warning displayed.
+		LT_COMMENT,	// Comments start with "#". Ignored.
+		LT_CVAR		// CVAR setting.
+	}
+	lineType;
+
+	// Comment line format.
+	const std::regex commentFormat("^\\s*#", std::regex_constants::icase);
+
+	// CVAR string format.
+	const std::regex cvarFormat("^\\s*([a-zA-Z_]+)\\s+([\\d.]+)\\s*&", std::regex_constants::icase);
 
 	std::string line;
 	std::smatch matches;
 
 	while(std::getline(cfgFile, line))
 	{
+		// If comment, ignore.
+		std::regex_match(line, matches, commentFormat);
+		if(matches.size())
+			continue;
+
+		// If CVAR, assign value.
 		std::regex_match(line, matches, cvarFormat);
 
 		// There should be three matches. One for the string and two for the
@@ -119,77 +152,63 @@ void CFGFile::save()
 }
 
 /**
- * Initializes the configuration system. Checks that the directory for config
- * files and the default file exist; tries to creates them if they don't. For
- * every console variable in the file, simply sets its value. The initializing
- * functions for each system will test the values, and if invalid, or one has
- * not been set, will set it to default.
- *
- * Neither the config directory or the default config file are absolutely
- * required. If either cannot be created or used, all defaults will be used. If
- * a default config file is found, any settings it has will attempt to be used.
+ * Console commands.
  */
 
-uint8_t init()
+/**
+ * Loads a configuration file.
+ */
+
+void loadCFGFile()
 {
-	if(!CFGFile::cfgDirectory.exists())
-	{
-		if(!std::filesystem::create_directory(CFGFile::cfgDirPath))
+	CFGFile file("test.cfg");
+	file.load();
+}
+
+void saveCFGFile()
+{
+	CFGFile file("test.cfg");
+	file.save();
+}
+
+/**
+ * Initializes configuration system.
+ * Loads the main configuration file.
+ */
+
+const uint8_t init()
+{
+	console::CCMDs.insert
+	(
 		{
-
+			{ "cfg_load", loadCFGFile },
+			{ "cfg_save", saveCFGFile }
 		}
-	}
-
-	// If we can't open the default config file, then simply use defaults for
-	// all settings.
-	if(!defaultCFGFile)
-	{
-		return 2;
-	}
-
-	defaultCFGFile.cfgFile.open(defaultCFGFile.cfgFilePath.string(), std::ios::in);
-	if(!defaultCFGFile.cfgFile.is_open())
-	{
-		 return 3;
-	}
-
-	std::string line;
-	std::smatch matches;
-
-	while(std::getline(defaultCFGFile.cfgFile, line))
-	{
-		std::regex_match(line, matches, cvarFormat);
-
-		// There should be three matches. One for the string and two for the
-		// submatches (CVAR name and value).
-		if(matches.size() != 3)
-		{
-
-		}
-
-		// CVAR seems good. Attempt to apply it. Up to the CVAR whether or not
-		// this happens.
-		std::string_view
-			name	= matches[1].str().c_str(),
-			value	= matches[2].str().c_str();
-
-		(*console::systemCVARs[name]).value = value;
-	}
-
-	defaultCFGFile.cfgFile.close();
-
-	for(auto &[name, cv] : console::systemCVARs)
-		if(cv->value.empty())
-			cv->value = cv->defaultValue;
+	);
 
 	return 0;
 }
 
+/**
+ * Shuts down configuration system.
+ * Attempts to save default configuration file.
+ */
+
 void quit()
 {
-	defaultCFGFile.save();
+	// Create config file directory if it does not exist. If we can't, it's an error;
+	// no file will be saved.
+	if(!cfgDirectory.exists())
+	{
+		if(!std::filesystem::create_directory(cfgDirPath))
+		{
+			return;
+		}
+	}
+
+	// Save configuration file.
 }
 
-} // namespace config
+} // namespace configuration
 
 } // namespace coreLib
